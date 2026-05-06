@@ -1,0 +1,16 @@
+# This directory is the destination for compiled `.mlxfn` MeSP exports.
+#
+# Each model lives in its own subdirectory, e.g.
+#   export/Qwen2.5-0.5B-4bit-bfloat16-rank8-mesp/
+#     embedding.mlxfn
+#     loss.mlxfn
+#     layer{0..N-1}_forward_swift.mlxfn
+#     layer{0..N-1}_transformer_block.safetensors
+#     trainable_params.safetensors
+#     run_configs.json
+#     training_config.json
+#     tokenizer.json
+#
+# These artifacts are loaded on-device by the MLXMeSPExample app
+# (and any custom Swift app linking against MLXMeSP) via
+# `Model(modelDir: ...)` in MLXMeSPExample/MLXMeSPExample/Model.swift.

@@ -1,0 +1,8 @@
+mlx==0.26.3
+mlx-lm==0.26.4
+numpy
+datasets
+transformers
+torch
+matplotlib
+pandas
