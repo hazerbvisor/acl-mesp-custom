@@ -12,9 +12,9 @@ import Foundation
 import MLX
 
 #if XTOOL_MOBILE
-internal typealias MeSPMeSPImportedFunction = XToolMeSPImportedFunction
+internal typealias MeSPImportedFunction = XToolImportedFunction
 #else
-internal typealias MeSPMeSPImportedFunction = MeSPImportedFunction
+internal typealias MeSPImportedFunction = ImportedFunction
 #endif
 
 /// Protocol for checkpoint storage to allow swapping between in-memory and mmap implementations
