@@ -11,6 +11,11 @@ struct HazeCoderNanoView: View {
     @State private var isRunning = false
     @State private var trainingResult: HazeCoderTrainingProofResult?
     @State private var isTraining = false
+    @State private var codePipelineResult: HazeCoderCodePipelineResult?
+    @State private var isCodeTraining = false
+    @State private var generationPrompt = HazeCoderTinyCodeCorpus.defaultPrompt
+    @State private var generationResult: HazeCoderGenerationResult?
+    @State private var isGenerating = false
 
     var body: some View {
         NavigationStack {
@@ -29,6 +34,18 @@ struct HazeCoderNanoView: View {
                     if let trainingResult {
                         trainingResultCard(trainingResult)
                     }
+
+                    codePipelineCard
+
+                    if let codePipelineResult {
+                        codePipelineResultCard(codePipelineResult)
+                    }
+
+                    generationCard
+
+                    if let generationResult {
+                        generationResultCard(generationResult)
+                    }
                 }
                 .padding()
             }
@@ -42,7 +59,7 @@ struct HazeCoderNanoView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Phase 1 + 2 — forward pass proven; now prove on-device learning")
+            Text("Phase 3 — real code text, tokenizer, checkpoints and generation")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -65,7 +82,7 @@ struct HazeCoderNanoView: View {
             metricRow("Weight dtype", config.useBFloat16 ? "BF16" : "FP32")
             metricRow("Expected params", formatted(config.estimatedParameterCount))
 
-            Text("No pretrained weights are used. The Phase 2 proof trains all Nano parameters from scratch on raw synthetic token IDs before tokenizer and dataset integration.")
+            Text("No pretrained weights are used. Phase 3 adds a reversible byte-level code tokenizer, a tiny authored code corpus, safetensors checkpoints and checkpoint-backed generation.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.top, 4)
@@ -126,6 +143,228 @@ struct HazeCoderNanoView: View {
             .buttonStyle(.borderedProminent)
             .tint(.purple)
             .disabled(isTraining || isRunning)
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var codePipelineCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Phase 3 — real code pipeline")
+                .font(.headline)
+
+            Text("Tokenizes real Python, Swift, C, Rust and JavaScript source text, trains all 9.44M parameters for 16 steps, saves a .safetensors checkpoint, reloads it, then generates from the reloaded weights.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Button {
+                runCodePipeline()
+            } label: {
+                HStack {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    Text(
+                        isCodeTraining
+                            ? "Training real code…"
+                            : "Train Tiny Code Corpus + Save Checkpoint"
+                    )
+                    .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+            .disabled(
+                isCodeTraining ||
+                isTraining ||
+                isRunning ||
+                isGenerating
+            )
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    @ViewBuilder
+    private func codePipelineResultCard(
+        _ result: HazeCoderCodePipelineResult
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(
+                result.passed ? "CODE PIPELINE PASS" : "CODE PIPELINE FAIL",
+                systemImage: result.passed
+                    ? "checkmark.circle.fill"
+                    : "xmark.octagon.fill"
+            )
+            .font(.title2)
+            .fontWeight(.bold)
+            .foregroundColor(result.passed ? .green : .red)
+
+            Text(result.message)
+                .font(.subheadline)
+
+            Divider()
+
+            metricRow("Corpus tokens", formatted(result.corpusTokenCount))
+            metricRow("Steps", "\(result.steps)")
+            metricRow("Context", "\(result.contextLength)")
+            metricRow("Parameters", formatted(result.parameterCount))
+            metricRow("Initial loss", finiteFloat(result.initialLoss))
+            metricRow("Final loss", finiteFloat(result.finalLoss))
+            metricRow(
+                "Weight Δ MSE",
+                finiteScientific(result.parameterChangeMeanSquare)
+            )
+            metricRow(
+                "Checkpoint",
+                result.checkpointBytes > 0
+                    ? String(
+                        format: "%.2f MB",
+                        Double(result.checkpointBytes) /
+                            1024.0 / 1024.0
+                    )
+                    : "n/a"
+            )
+            metricRow(
+                "Elapsed",
+                String(format: "%.1f ms", result.elapsedMilliseconds)
+            )
+
+            if !result.checkpointPath.isEmpty {
+                Text("Checkpoint")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+                Text(result.checkpointPath)
+                    .font(.system(.caption2, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
+            Text("Generation after checkpoint reload")
+                .font(.headline)
+
+            Text("Prompt")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text(result.prompt)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+
+            Text("HazeCoder continuation")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
+
+            Text(
+                result.generatedText.isEmpty
+                    ? "(no text generated)"
+                    : result.generatedText
+            )
+            .font(.system(.body, design: .monospaced))
+            .textSelection(.enabled)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.tertiarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var generationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Generate from latest checkpoint")
+                .font(.headline)
+
+            Text("Edit the prefix below. This loads the saved Phase 3 weights and performs greedy generation without retraining.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            TextField(
+                "Code prompt",
+                text: $generationPrompt,
+                axis: .vertical
+            )
+            .font(.system(.body, design: .monospaced))
+            .textFieldStyle(.roundedBorder)
+            .lineLimit(3 ... 8)
+
+            Button {
+                runCheckpointGeneration()
+            } label: {
+                HStack {
+                    Image(systemName: "sparkles")
+                    Text(
+                        isGenerating
+                            ? "Generating…"
+                            : "Generate from Saved HazeCoder"
+                    )
+                    .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .disabled(
+                isGenerating ||
+                isCodeTraining ||
+                generationPrompt.isEmpty
+            )
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    @ViewBuilder
+    private func generationResultCard(
+        _ result: HazeCoderGenerationResult
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(
+                result.passed ? "GENERATION PASS" : "GENERATION FAIL",
+                systemImage: result.passed
+                    ? "checkmark.circle.fill"
+                    : "xmark.octagon.fill"
+            )
+            .font(.title2)
+            .fontWeight(.bold)
+            .foregroundColor(result.passed ? .green : .red)
+
+            Text(result.message)
+                .font(.subheadline)
+
+            metricRow(
+                "Elapsed",
+                String(format: "%.1f ms", result.elapsedMilliseconds)
+            )
+
+            Divider()
+
+            Text(result.prompt)
+                .font(.system(.body, design: .monospaced))
+                .foregroundColor(.secondary)
+                .textSelection(.enabled)
+
+            Text(
+                result.generatedText.isEmpty
+                    ? "(no text generated)"
+                    : result.generatedText
+            )
+            .font(.system(.body, design: .monospaced))
+            .textSelection(.enabled)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.tertiarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .padding()
         .background(Color(.secondarySystemBackground))
@@ -261,6 +500,27 @@ struct HazeCoderNanoView: View {
 
     private func finiteScientific(_ value: Float) -> String {
         value.isFinite ? String(format: "%.3e", value) : "n/a"
+    }
+
+    private func runCodePipeline() {
+        isCodeTraining = true
+        codePipelineResult = nil
+        generationResult = nil
+
+        codePipelineResult =
+            HazeCoderTrainer.runTinyCodePipeline()
+        isCodeTraining = false
+    }
+
+    private func runCheckpointGeneration() {
+        isGenerating = true
+        generationResult = nil
+
+        generationResult =
+            HazeCoderTrainer.generateFromLatestCodeCheckpoint(
+                prompt: generationPrompt
+            )
+        isGenerating = false
     }
 
     private func runTrainingProof() {
