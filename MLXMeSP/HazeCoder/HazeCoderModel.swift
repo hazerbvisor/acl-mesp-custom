@@ -67,25 +67,29 @@ public final class HazeCoderModel {
     public init(config: HazeCoderConfig = .nano) throws {
         try config.validate()
         self.config = config
-        self.dtype = config.useBFloat16 ? .bfloat16 : .float32
+
+        // Keep the initialization dtype in a local value so the block-building
+        // closure does not capture self before every stored property is initialized.
+        let modelDType: DType = config.useBFloat16 ? .bfloat16 : .float32
+        self.dtype = modelDType
 
         MLXRandom.seed(config.seed)
 
         let embeddingScale = 1.0 / sqrt(Float(config.hiddenSize))
         self.tokenEmbedding = MLXRandom.normal(
             [config.vocabSize, config.hiddenSize],
-            dtype: dtype,
+            dtype: modelDType,
             scale: embeddingScale
         )
 
         self.blocks = (0 ..< config.numLayers).map { _ in
-            HazeCoderTransformerBlock(config: config, dtype: dtype)
+            HazeCoderTransformerBlock(config: config, dtype: modelDType)
         }
 
         self.finalNorm = HazeCoderRMSNorm(
             dimensions: config.hiddenSize,
             epsilon: config.rmsNormEpsilon,
-            dtype: dtype
+            dtype: modelDType
         )
     }
 
