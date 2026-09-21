@@ -280,7 +280,7 @@ public enum HazeCoderTrainer {
             config.useBFloat16 ? .bfloat16 : .float32
 
         let embeddingScale =
-            1.0 / Foundation.sqrt(Float(config.hiddenSize))
+            1.0 / sqrt(Float(config.hiddenSize))
 
         var parameters = [MLXArray]()
         parameters.reserveCapacity(2 + config.numLayers * 9)
@@ -301,7 +301,7 @@ public enum HazeCoderTrainer {
             )
 
             let attentionScale =
-                1.0 / Foundation.sqrt(Float(config.hiddenSize))
+                1.0 / sqrt(Float(config.hiddenSize))
             let qDimensions =
                 config.numQueryHeads * config.headDimension
             let kvDimensions =
@@ -342,9 +342,9 @@ public enum HazeCoderTrainer {
             )
 
             let ffnInputScale =
-                1.0 / Foundation.sqrt(Float(config.hiddenSize))
+                1.0 / sqrt(Float(config.hiddenSize))
             let ffnOutputScale =
-                1.0 / Foundation.sqrt(Float(config.intermediateSize))
+                1.0 / sqrt(Float(config.intermediateSize))
 
             parameters.append(
                 MLXRandom.normal(
@@ -593,7 +593,7 @@ public enum HazeCoderTrainer {
         }
 
         let scale =
-            1.0 / Foundation.sqrt(Float(headDimension))
+            1.0 / sqrt(Float(headDimension))
 
         var scores =
             MLX.matmul(
