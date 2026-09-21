@@ -785,12 +785,28 @@ public enum HazeCoderTrainer {
 
     public static func generateFromLatestCodeCheckpoint(
         prompt: String,
-        maxNewTokens: Int = 64
+        maxNewTokens: Int = 8
     ) -> HazeCoderGenerationResult {
         let started = Date()
         let config = HazeCoderConfig.nano
         let tokenizer = HazeCoderCodeTokenizer()
         let checkpointURL = latestCodeCheckpointURL()
+
+        // Generation now runs as a completely separate operation after the
+        // training function has returned, so optimizer state and training
+        // graphs are no longer live.
+        let previousCacheLimit = Memory.cacheLimit
+        Memory.cacheLimit = min(
+            previousCacheLimit,
+            32 * 1024 * 1024
+        )
+        Memory.clearCache()
+        defer {
+            Memory.clearCache()
+            Memory.cacheLimit = previousCacheLimit
+        }
+
+        recordPhase3Stage("G01 checkpoint load start")
 
         do {
             guard FileManager.default.fileExists(
@@ -805,6 +821,8 @@ public enum HazeCoderTrainer {
                 url: checkpointURL,
                 config: config
             )
+
+            recordPhase3Stage("G01 checkpoint load done")
 
             guard loaded.metadata["tokenizer"] ==
                     tokenizer.tokenizerVersion
@@ -822,9 +840,11 @@ public enum HazeCoderTrainer {
                 maxNewTokens: maxNewTokens
             )
 
+            recordPhase3Stage("G99 generation PASS")
+
             return HazeCoderGenerationResult(
                 passed: true,
-                message: "PASS — generated from the reloaded on-device checkpoint.",
+                message: "PASS — generated from the saved on-device checkpoint.",
                 prompt: prompt,
                 generatedText: generated,
                 checkpointPath: checkpointURL.path,
@@ -832,6 +852,10 @@ public enum HazeCoderTrainer {
                     Date().timeIntervalSince(started) * 1000.0
             )
         } catch {
+            recordPhase3Stage(
+                "G-ERROR generation: \(error)"
+            )
+
             return HazeCoderGenerationResult(
                 passed: false,
                 message: "ERROR — \(error)",
@@ -849,8 +873,7 @@ public enum HazeCoderTrainer {
     /// greedy generation from the reloaded parameters.
     public static func runTinyCodePipeline(
         steps: Int = 4,
-        contextLength: Int = 16,
-        generationTokens: Int = 16
+        contextLength: Int = 16
     ) -> HazeCoderCodePipelineResult {
         let started = Date()
         let config = HazeCoderConfig.nano
@@ -1121,18 +1144,6 @@ public enum HazeCoderTrainer {
             recordPhase3Stage("07 checkpoint reload done")
             Memory.clearCache()
 
-            recordPhase3Stage("08 generation start")
-
-            let generatedText = generateGreedy(
-                prompt: prompt,
-                parameters: loaded.parameters,
-                tokenizer: tokenizer,
-                config: config,
-                maxNewTokens: generationTokens
-            )
-
-            recordPhase3Stage("08 generation done")
-
             let checkpointBytes = checkpointSize(
                 url: checkpointURL
             )
@@ -1156,15 +1167,18 @@ public enum HazeCoderTrainer {
 
             recordPhase3Stage(
                 passed
-                    ? "09 complete PASS"
-                    : "09 complete validation FAIL"
+                    ? "08 checkpoint pipeline PASS"
+                    : "08 checkpoint validation FAIL"
             )
 
+            // Deliberately return here. This creates a hard lifetime boundary:
+            // training weights, gradients, Adam moments and the training graph
+            // are released before the user starts generation.
             return HazeCoderCodePipelineResult(
                 passed: passed,
                 message: passed
-                    ? "PASS — real code text trained, checkpointed, reloaded and generated on-device."
-                    : "FAIL — Phase 3 completed but one or more validation checks failed.",
+                    ? "PASS — real code trained and the safetensors checkpoint reloaded successfully. Generation is now a separate low-memory stage."
+                    : "FAIL — Phase 3 checkpoint validation did not pass.",
                 steps: steps,
                 contextLength: contextLength,
                 corpusTokenCount: corpusTokens.count,
@@ -1178,7 +1192,7 @@ public enum HazeCoderTrainer {
                 checkpointPath: checkpointURL.path,
                 checkpointBytes: checkpointBytes,
                 prompt: prompt,
-                generatedText: generatedText,
+                generatedText: "",
                 lossHistory: lossHistory
             )
         } catch {
@@ -1424,10 +1438,19 @@ public enum HazeCoderTrainer {
             [tokenizer.eosToken] + byteIDs
         let allowedIndices = MLXArray(allowedTokenIDs)
 
-        for _ in 0 ..< maxNewTokens {
+        let generationContextLimit = min(
+            config.maxSequenceLength,
+            32
+        )
+
+        for tokenIndex in 0 ..< maxNewTokens {
+            recordPhase3Stage(
+                "G02 token \(tokenIndex + 1)/\(maxNewTokens) start"
+            )
+
             let clipped = Array(
                 contextTokens.suffix(
-                    config.maxSequenceLength
+                    generationContextLimit
                 )
             )
 
@@ -1480,9 +1503,13 @@ public enum HazeCoderTrainer {
             generated.append(nextToken)
             contextTokens.append(nextToken)
 
-            if generated.count.isMultiple(of: 8) {
-                Memory.clearCache()
-            }
+            // Materialize one token at a time, then immediately return reusable
+            // Metal buffers before constructing the next forward graph.
+            Memory.clearCache()
+
+            recordPhase3Stage(
+                "G02 token \(tokenIndex + 1)/\(maxNewTokens) done"
+            )
         }
 
         return tokenizer.decode(generated)
