@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "name": "MLXMeSPExample",
+  "bundleIdentifier": "com.hazerbvisor.MLXMeSPExample",
+  "deploymentTarget": "16.0",
+  "executableTarget": "MLXMeSPExample",
+  "infoPlist": "MLXMeSPExample/MLXMeSPExample/Info.plist",
+  "targets": [
+    {
+      "name": "MLXMeSP",
+      "sources": [
+        "MLXMeSP"
+      ],
+      "parseAsLibrary": true
+    },
+    {
+      "name": "MLXMeSPExample",
+      "sources": [
+        "MLXMeSPExample/MLXMeSPExample"
+      ],
+      "dependencies": [
+        "MLXMeSP"
+      ],
+      "parseAsLibrary": false
+    }
+  ],
+  "frameworks": [
+    "Accelerate",
+    "Combine",
+    "Foundation",
+    "Metal",
+    "SwiftUI",
+    "UIKit"
+  ],
+  "shortVersion": "0.1.0",
+  "buildVersion": "1",
+  "resources": [
+    {
+      "path": "MLXMeSPExample/MLXMeSPExample/wiki-text-demo.jsonl",
+      "destination": "wiki-text-demo.jsonl"
+    },
+    {
+      "path": "MLXMeSPExample/MLXMeSPExample/wikitext2-demo.jsonl",
+      "destination": "wikitext2-demo.jsonl"
+    },
+    {
+      "path": "MLXMeSPExample/MLXMeSPExample/wikitext2.jsonl",
+      "destination": "wikitext2.jsonl"
+    },
+    {
+      "path": "MLXMeSPExample/MLXMeSPExample/wikitext2_base.jsonl",
+      "destination": "wikitext2_base.jsonl"
+    }
+  ]
+}
