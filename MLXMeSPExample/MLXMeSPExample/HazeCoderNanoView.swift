@@ -9,6 +9,8 @@ import MLXMeSP
 struct HazeCoderNanoView: View {
     @State private var result: HazeCoderSelfTestResult?
     @State private var isRunning = false
+    @State private var trainingResult: HazeCoderTrainingProofResult?
+    @State private var isTraining = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +22,12 @@ struct HazeCoderNanoView: View {
 
                     if let result {
                         resultCard(result)
+                    }
+
+                    trainingCard
+
+                    if let trainingResult {
+                        trainingResultCard(trainingResult)
                     }
                 }
                 .padding()
@@ -34,7 +42,7 @@ struct HazeCoderNanoView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Phase 1 — random weights → full causal forward pass → logits")
+            Text("Phase 1 + 2 — forward pass proven; now prove on-device learning")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -57,7 +65,7 @@ struct HazeCoderNanoView: View {
             metricRow("Weight dtype", config.useBFloat16 ? "BF16" : "FP32")
             metricRow("Expected params", formatted(config.estimatedParameterCount))
 
-            Text("No pretrained weights, tokenizer, optimizer, JEPA, SSM, MoE or quantization are used in this milestone.")
+            Text("No pretrained weights are used. The Phase 2 proof trains all Nano parameters from scratch on raw synthetic token IDs before tokenizer and dataset integration.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.top, 4)
@@ -89,6 +97,105 @@ struct HazeCoderNanoView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(isRunning)
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var trainingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("On-device training proof")
+                .font(.headline)
+
+            Text("Runs 8 next-token training steps over a tiny deterministic token pattern. MLX autodiff computes gradients for all 9.44M parameters; AdamW updates BF16 weights with FP32 optimizer moments.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Button {
+                runTrainingProof()
+            } label: {
+                HStack {
+                    Image(systemName: "brain.head.profile")
+                    Text(isTraining ? "Training…" : "Run Nano Training Proof")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.purple)
+            .disabled(isTraining || isRunning)
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    @ViewBuilder
+    private func trainingResultCard(
+        _ result: HazeCoderTrainingProofResult
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(
+                result.passed ? "LEARNING PASS" : "TRAINING FAIL",
+                systemImage: result.passed
+                    ? "checkmark.circle.fill"
+                    : "xmark.octagon.fill"
+            )
+            .font(.title2)
+            .fontWeight(.bold)
+            .foregroundColor(result.passed ? .green : .red)
+
+            Text(result.message)
+                .font(.subheadline)
+
+            Divider()
+
+            metricRow("Steps", "\(result.steps)")
+            metricRow("Sequence", "\(result.sequenceLength)")
+            metricRow("Parameters", formatted(result.parameterCount))
+            metricRow(
+                "Initial loss",
+                finiteFloat(result.initialLoss)
+            )
+            metricRow(
+                "Final loss",
+                finiteFloat(result.finalLoss)
+            )
+
+            if result.initialLoss.isFinite &&
+               result.finalLoss.isFinite &&
+               result.initialLoss != 0 {
+                let reduction =
+                    (1.0 - result.finalLoss / result.initialLoss) * 100.0
+                metricRow(
+                    "Loss reduction",
+                    String(format: "%.2f%%", reduction)
+                )
+            }
+
+            metricRow(
+                "Weight Δ MSE",
+                finiteScientific(result.parameterChangeMeanSquare)
+            )
+            metricRow(
+                "Elapsed",
+                String(format: "%.1f ms", result.elapsedMilliseconds)
+            )
+
+            if !result.lossHistory.isEmpty {
+                Text(
+                    "Loss history: " +
+                    result.lossHistory
+                        .map { finiteFloat($0) }
+                        .joined(separator: " → ")
+                )
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+            }
         }
         .padding()
         .background(Color(.secondarySystemBackground))
@@ -146,6 +253,22 @@ struct HazeCoderNanoView: View {
 
     private func formatted(_ value: Int) -> String {
         value.formatted(.number.grouping(.automatic))
+    }
+
+    private func finiteFloat(_ value: Float) -> String {
+        value.isFinite ? String(format: "%.4f", value) : "n/a"
+    }
+
+    private func finiteScientific(_ value: Float) -> String {
+        value.isFinite ? String(format: "%.3e", value) : "n/a"
+    }
+
+    private func runTrainingProof() {
+        isTraining = true
+        trainingResult = nil
+
+        trainingResult = HazeCoderTrainer.runNanoTrainingProof()
+        isTraining = false
     }
 
     private func runTest() {
