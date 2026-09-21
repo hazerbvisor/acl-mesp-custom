@@ -264,35 +264,20 @@ struct HazeCoderNanoView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Divider()
+            if result.passed {
+                Divider()
 
-            Text("Generation after checkpoint reload")
+                Label(
+                    "Checkpoint ready for generation",
+                    systemImage: "externaldrive.fill.badge.checkmark"
+                )
                 .font(.headline)
+                .foregroundColor(.green)
 
-            Text("Prompt")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Text(result.prompt)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-
-            Text("HazeCoder continuation")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.top, 4)
-
-            Text(
-                result.generatedText.isEmpty
-                    ? "(no text generated)"
-                    : result.generatedText
-            )
-            .font(.system(.body, design: .monospaced))
-            .textSelection(.enabled)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.tertiarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+                Text("Training has fully returned and released its optimizer state. Use the separate green generation button below to load only the saved model weights.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding()
         .background(Color(.secondarySystemBackground))
@@ -304,7 +289,7 @@ struct HazeCoderNanoView: View {
             Text("Generate from latest checkpoint")
                 .font(.headline)
 
-            Text("Edit the prefix below. This loads the saved Phase 3 weights and performs greedy generation without retraining.")
+            Text("Low-memory generation stage: loads only the saved model weights, uses the proven 32-token forward shape, and generates up to 8 tokens without retraining.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
