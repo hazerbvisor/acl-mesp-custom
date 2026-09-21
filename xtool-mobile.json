@@ -49,12 +49,39 @@
       "parseAsLibrary": true
     },
     {
+      "name": "Jinja",
+      "sources": [
+        "ThirdParty/swift-transformers/JinjaStub"
+      ],
+      "parseAsLibrary": true
+    },
+    {
+      "name": "Hub",
+      "sources": [
+        "ThirdParty/swift-transformers/Hub"
+      ],
+      "parseAsLibrary": true
+    },
+    {
+      "name": "Tokenizers",
+      "sources": [
+        "ThirdParty/swift-transformers/Tokenizers"
+      ],
+      "dependencies": [
+        "Hub",
+        "Jinja"
+      ],
+      "parseAsLibrary": true
+    },
+    {
       "name": "MLXMeSP",
       "sources": [
         "MLXMeSP"
       ],
       "dependencies": [
-        "Numerics"
+        "Numerics",
+        "Hub",
+        "Tokenizers"
       ],
       "swiftFlags": [
         "-F",
@@ -102,7 +129,7 @@
     }
   ],
   "shortVersion": "0.1.0",
-  "buildVersion": "5",
+  "buildVersion": "6",
   "resources": [
     {
       "path": ".xtool-mobile-cache/binary-frameworks/a202bf1dcfe1e64404adabfeb5eb363332e3a6221d18e4289ca0663fa3ab86c9/Cmlx.xcframework/ios-arm64/Cmlx.framework",
@@ -127,6 +154,14 @@
     {
       "path": "MLXMeSPExample/MLXMeSPExample/wikitext2_base.jsonl",
       "destination": "wikitext2_base.jsonl"
+    },
+    {
+      "path": "ThirdParty/swift-transformers/Hub/FallbackConfigs/gpt2_tokenizer_config.json",
+      "destination": "gpt2_tokenizer_config.json"
+    },
+    {
+      "path": "ThirdParty/swift-transformers/Hub/FallbackConfigs/t5_tokenizer_config.json",
+      "destination": "t5_tokenizer_config.json"
     }
   ],
   "moduleSearchPaths": [
