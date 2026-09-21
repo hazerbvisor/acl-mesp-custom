@@ -19,7 +19,9 @@
 
 import Foundation
 import MLX
+#if canImport(MLXFast)
 import MLXFast
+#endif
 
 // MARK: - Structured Backward Primitives
 
