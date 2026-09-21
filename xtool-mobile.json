@@ -87,7 +87,9 @@
         "-F",
         "${PROJECT}/.xtool-mobile-cache/binary-frameworks/a202bf1dcfe1e64404adabfeb5eb363332e3a6221d18e4289ca0663fa3ab86c9/Cmlx.xcframework/ios-arm64",
         "-F",
-        "${PROJECT}/.xtool-mobile-cache/binary-frameworks/697f45a2ec2c0c312d9aa041a2b21f9c3706f18276823854dd96396118004c25/MLX.xcframework/ios-arm64"
+        "${PROJECT}/.xtool-mobile-cache/binary-frameworks/697f45a2ec2c0c312d9aa041a2b21f9c3706f18276823854dd96396118004c25/MLX.xcframework/ios-arm64",
+        "-D",
+        "XTOOL_MOBILE"
       ],
       "parseAsLibrary": true,
       "headerSearchPaths": [
@@ -129,7 +131,7 @@
     }
   ],
   "shortVersion": "0.1.0",
-  "buildVersion": "6",
+  "buildVersion": "7",
   "resources": [
     {
       "path": ".xtool-mobile-cache/binary-frameworks/a202bf1dcfe1e64404adabfeb5eb363332e3a6221d18e4289ca0663fa3ab86c9/Cmlx.xcframework/ios-arm64/Cmlx.framework",
