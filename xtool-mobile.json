@@ -102,7 +102,7 @@
     }
   ],
   "shortVersion": "0.1.0",
-  "buildVersion": "4",
+  "buildVersion": "5",
   "resources": [
     {
       "path": ".xtool-mobile-cache/binary-frameworks/a202bf1dcfe1e64404adabfeb5eb363332e3a6221d18e4289ca0663fa3ab86c9/Cmlx.xcframework/ios-arm64/Cmlx.framework",
@@ -128,5 +128,8 @@
       "path": "MLXMeSPExample/MLXMeSPExample/wikitext2_base.jsonl",
       "destination": "wikitext2_base.jsonl"
     }
+  ],
+  "moduleSearchPaths": [
+    "ThirdParty/swift-numerics/_NumericsShims/include"
   ]
 }
