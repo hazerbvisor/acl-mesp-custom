@@ -46,6 +46,32 @@ public struct HazeCoderTrainingProofResult: Sendable {
 }
 
 
+
+public struct HazeCoderGenerationResult: Sendable {
+    public let passed: Bool
+    public let message: String
+    public let prompt: String
+    public let generatedText: String
+    public let checkpointPath: String
+    public let elapsedMilliseconds: Double
+
+    public init(
+        passed: Bool,
+        message: String,
+        prompt: String,
+        generatedText: String,
+        checkpointPath: String,
+        elapsedMilliseconds: Double
+    ) {
+        self.passed = passed
+        self.message = message
+        self.prompt = prompt
+        self.generatedText = generatedText
+        self.checkpointPath = checkpointPath
+        self.elapsedMilliseconds = elapsedMilliseconds
+    }
+}
+
 public struct HazeCoderCodePipelineResult: Sendable {
     public let passed: Bool
     public let message: String
@@ -757,6 +783,67 @@ public enum HazeCoderTrainer {
 
     // MARK: - Phase 3 real-code pipeline
 
+    public static func generateFromLatestCodeCheckpoint(
+        prompt: String,
+        maxNewTokens: Int = 96
+    ) -> HazeCoderGenerationResult {
+        let started = Date()
+        let config = HazeCoderConfig.nano
+        let tokenizer = HazeCoderCodeTokenizer()
+        let checkpointURL = latestCodeCheckpointURL()
+
+        do {
+            guard FileManager.default.fileExists(
+                atPath: checkpointURL.path
+            ) else {
+                throw HazeCoderModelError.invalidInput(
+                    "no saved HazeCoder code checkpoint found"
+                )
+            }
+
+            let loaded = try loadCodeCheckpoint(
+                url: checkpointURL,
+                config: config
+            )
+
+            guard loaded.metadata["tokenizer"] ==
+                    tokenizer.tokenizerVersion
+            else {
+                throw HazeCoderModelError.invalidInput(
+                    "checkpoint tokenizer version mismatch"
+                )
+            }
+
+            let generated = generateGreedy(
+                prompt: prompt,
+                parameters: loaded.parameters,
+                tokenizer: tokenizer,
+                config: config,
+                maxNewTokens: maxNewTokens
+            )
+
+            return HazeCoderGenerationResult(
+                passed: true,
+                message: "PASS — generated from the reloaded on-device checkpoint.",
+                prompt: prompt,
+                generatedText: generated,
+                checkpointPath: checkpointURL.path,
+                elapsedMilliseconds:
+                    Date().timeIntervalSince(started) * 1000.0
+            )
+        } catch {
+            return HazeCoderGenerationResult(
+                passed: false,
+                message: "ERROR — \(error)",
+                prompt: prompt,
+                generatedText: "",
+                checkpointPath: checkpointURL.path,
+                elapsedMilliseconds:
+                    Date().timeIntervalSince(started) * 1000.0
+            )
+        }
+    }
+
     /// Trains HazeCoder-Nano on a tiny corpus of real source text, saves the
     /// resulting weights as safetensors, reloads the checkpoint, and performs
     /// greedy generation from the reloaded parameters.
@@ -1125,30 +1212,12 @@ public enum HazeCoderTrainer {
             )
         }
 
-        let documents = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        ).first!
-
-        let directory = documents
-            .appendingPathComponent(
-                "HazeCoder",
-                isDirectory: true
-            )
-            .appendingPathComponent(
-                "Checkpoints",
-                isDirectory: true
-            )
+        let url = latestCodeCheckpointURL()
 
         try FileManager.default.createDirectory(
-            at: directory,
+            at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true,
             attributes: nil
-        )
-
-        let url = directory.appendingPathComponent(
-            "hazecoder-nano-code-latest.safetensors",
-            isDirectory: false
         )
 
         var arrays = [String: MLXArray]()
@@ -1180,6 +1249,34 @@ public enum HazeCoderTrainer {
         )
 
         return url
+    }
+
+    private static func loadCodeCheckpoint(
+        url: URL,
+        config: HazeCoderConfig
+    ) throws -> LoadedCodeCheckpoint {
+        let names = checkpointParameterNames(config: config)
+        let loaded = try MLX.loadArraysAndMetadata(
+            url: url,
+            stream: .default
+        )
+
+        var parameters = [MLXArray]()
+        parameters.reserveCapacity(names.count)
+
+        for name in names {
+            guard let array = loaded.0[name] else {
+                throw HazeCoderModelError.invalidInput(
+                    "checkpoint missing \(name)"
+                )
+            }
+            parameters.append(array)
+        }
+
+        return LoadedCodeCheckpoint(
+            parameters: parameters,
+            metadata: loaded.1
+        )
     }
 
     private static func loadCodeCheckpoint(
@@ -1303,6 +1400,27 @@ public enum HazeCoderTrainer {
         }
 
         return tokenizer.decode(generated)
+    }
+
+    private static func latestCodeCheckpointURL() -> URL {
+        let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        ).first!
+
+        return documents
+            .appendingPathComponent(
+                "HazeCoder",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "Checkpoints",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "hazecoder-nano-code-latest.safetensors",
+                isDirectory: false
+            )
     }
 
     private static func checkpointSize(
