@@ -35,10 +35,12 @@ final class HazeCoderRotaryEmbedding {
         for position in 0 ..< sequenceLength {
             for i in 0 ..< half {
                 let exponent = Float(2 * i) / Float(headDimension)
-                let inverseFrequency = pow(theta, -exponent)
+                let inverseFrequency = Float(
+                    Foundation.pow(Double(theta), Double(-exponent))
+                )
                 let angle = Float(position) * inverseFrequency
-                cosValues.append(Foundation.cos(angle))
-                sinValues.append(Foundation.sin(angle))
+                cosValues.append(Float(Foundation.cos(Double(angle))))
+                sinValues.append(Float(Foundation.sin(Double(angle))))
             }
         }
 
