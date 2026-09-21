@@ -154,7 +154,7 @@ struct HazeCoderNanoView: View {
             Text("Phase 3 — real code pipeline")
                 .font(.headline)
 
-            Text("Tokenizes real Python, Swift, C, Rust and JavaScript source text, trains all 9.44M parameters for 16 steps, saves a .safetensors checkpoint, reloads it, then generates from the reloaded weights.")
+            Text("Tokenizes real Python, Swift, C, Rust and JavaScript source text, trains all 9.44M parameters for 16 steps with a 32-token context, saves a .safetensors checkpoint, reloads it, then generates from the reloaded weights.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -507,20 +507,37 @@ struct HazeCoderNanoView: View {
         codePipelineResult = nil
         generationResult = nil
 
-        codePipelineResult =
-            HazeCoderTrainer.runTinyCodePipeline()
-        isCodeTraining = false
+        // Keep the entire MLX training job on one background executor.
+        // Only the Sendable scalar/string result returns to SwiftUI.
+        Task {
+            let completed = await Task.detached(
+                priority: .userInitiated
+            ) {
+                HazeCoderTrainer.runTinyCodePipeline()
+            }.value
+
+            codePipelineResult = completed
+            isCodeTraining = false
+        }
     }
 
     private func runCheckpointGeneration() {
         isGenerating = true
         generationResult = nil
+        let prompt = generationPrompt
 
-        generationResult =
-            HazeCoderTrainer.generateFromLatestCodeCheckpoint(
-                prompt: generationPrompt
-            )
-        isGenerating = false
+        Task {
+            let completed = await Task.detached(
+                priority: .userInitiated
+            ) {
+                HazeCoderTrainer.generateFromLatestCodeCheckpoint(
+                    prompt: prompt
+                )
+            }.value
+
+            generationResult = completed
+            isGenerating = false
+        }
     }
 
     private func runTrainingProof() {
