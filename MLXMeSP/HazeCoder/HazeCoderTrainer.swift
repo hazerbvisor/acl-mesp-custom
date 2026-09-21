@@ -824,6 +824,13 @@ public enum HazeCoderTrainer {
 
             recordPhase3Stage("G01 checkpoint load done")
 
+            // Force the safetensors weights to be fully materialized before
+            // constructing any inference graph. This keeps file I/O/lazy-load
+            // work out of the first generation forward pass.
+            MLX.eval(loaded.parameters)
+            Memory.clearCache()
+            recordPhase3Stage("G01 weights materialized")
+
             guard loaded.metadata["tokenizer"] ==
                     tokenizer.tokenizerVersion
             else {
@@ -1431,11 +1438,14 @@ public enum HazeCoderTrainer {
         var generated = [Int32]()
         generated.reserveCapacity(maxNewTokens)
 
-        let byteIDs = (0 ..< 256).map {
-            tokenizer.byteOffset + Int32($0)
-        }
-        let allowedTokenIDs =
-            [tokenizer.eosToken] + byteIDs
+        // Byte-level tokenizer output is restricted to EOS + 256 byte IDs.
+        // Token selection itself is done in Swift on the CPU after evaluating
+        // only those 257 logits. This avoids GPU argMax/scalar-read kernels.
+        let allowedTokenIDs: [Int32] =
+            [tokenizer.eosToken] +
+            (0 ..< 256).map {
+                tokenizer.byteOffset + Int32($0)
+            }
         let allowedIndices = MLXArray(allowedTokenIDs)
 
         let generationContextLimit = min(
@@ -1444,9 +1454,10 @@ public enum HazeCoderTrainer {
         )
 
         for tokenIndex in 0 ..< maxNewTokens {
-            recordPhase3Stage(
-                "G02 token \(tokenIndex + 1)/\(maxNewTokens) start"
-            )
+            let stepName =
+                "G02 token \(tokenIndex + 1)/\(maxNewTokens)"
+
+            recordPhase3Stage("\(stepName) start")
 
             let clipped = Array(
                 contextTokens.suffix(
@@ -1467,12 +1478,18 @@ public enum HazeCoderTrainer {
                     : .float32
             )
 
+            recordPhase3Stage("\(stepName) forward build")
+
             let logits = forward(
                 tokenIDs: input,
                 parameters: parameters,
                 config: config,
                 constants: constants
             )
+
+            // Materialize the forward graph explicitly before any indexing.
+            MLX.eval(logits)
+            recordPhase3Stage("\(stepName) forward eval done")
 
             let lastPosition = MLXArray([
                 Int32(clipped.count - 1)
@@ -1482,7 +1499,11 @@ public enum HazeCoderTrainer {
                 logits,
                 lastPosition,
                 axis: 1
-            ).reshaped([config.vocabSize])
+            )
+            .reshaped([config.vocabSize])
+            .asType(.float32)
+
+            recordPhase3Stage("\(stepName) last logits ready")
 
             let allowedLogits = MLX.take(
                 lastLogits,
@@ -1490,26 +1511,41 @@ public enum HazeCoderTrainer {
                 axis: 0
             )
 
-            let selectedIndex =
-                MLX.argMax(allowedLogits).item(Int.self)
+            MLX.eval(allowedLogits)
+            recordPhase3Stage("\(stepName) allowed logits eval done")
 
-            let nextToken =
-                allowedTokenIDs[selectedIndex]
+            let scores = allowedLogits.asArray(Float.self)
+            recordPhase3Stage("\(stepName) logits copied to CPU")
+
+            guard !scores.isEmpty else {
+                break
+            }
+
+            var bestIndex = 0
+            var bestScore = scores[0]
+
+            if scores.count > 1 {
+                for index in 1 ..< scores.count {
+                    if scores[index] > bestScore {
+                        bestScore = scores[index]
+                        bestIndex = index
+                    }
+                }
+            }
+
+            let nextToken = allowedTokenIDs[bestIndex]
+            recordPhase3Stage("\(stepName) CPU token selected")
 
             if nextToken == tokenizer.eosToken {
+                recordPhase3Stage("\(stepName) EOS")
                 break
             }
 
             generated.append(nextToken)
             contextTokens.append(nextToken)
 
-            // Materialize one token at a time, then immediately return reusable
-            // Metal buffers before constructing the next forward graph.
             Memory.clearCache()
-
-            recordPhase3Stage(
-                "G02 token \(tokenIndex + 1)/\(maxNewTokens) done"
-            )
+            recordPhase3Stage("\(stepName) done")
         }
 
         return tokenizer.decode(generated)
