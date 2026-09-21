@@ -304,6 +304,12 @@ public enum HazeCoderTrainer {
 
             parameters = updatedParameters
             lossHistory.append(stepLoss.item(Float.self))
+
+            // Release stale reusable Metal buffers periodically. The live
+            // parameters/moments remain active and are not discarded.
+            if step.isMultiple(of: 2) {
+                Memory.clearCache()
+            }
         }
 
         let finalLossArray = loss(parameters)
@@ -785,7 +791,7 @@ public enum HazeCoderTrainer {
 
     public static func generateFromLatestCodeCheckpoint(
         prompt: String,
-        maxNewTokens: Int = 96
+        maxNewTokens: Int = 64
     ) -> HazeCoderGenerationResult {
         let started = Date()
         let config = HazeCoderConfig.nano
@@ -849,8 +855,8 @@ public enum HazeCoderTrainer {
     /// greedy generation from the reloaded parameters.
     public static func runTinyCodePipeline(
         steps: Int = 16,
-        contextLength: Int = 64,
-        generationTokens: Int = 48
+        contextLength: Int = 32,
+        generationTokens: Int = 32
     ) -> HazeCoderCodePipelineResult {
         let started = Date()
         let config = HazeCoderConfig.nano
@@ -873,6 +879,20 @@ public enum HazeCoderTrainer {
                 prompt: prompt,
                 started: started
             )
+        }
+
+        // iOS can terminate an app when MLX's reusable Metal-buffer cache grows
+        // too aggressively during training. Keep the Phase 3 proof bounded and
+        // restore the user's previous MLX cache policy when it finishes.
+        let previousCacheLimit = Memory.cacheLimit
+        Memory.cacheLimit = min(
+            previousCacheLimit,
+            128 * 1024 * 1024
+        )
+        Memory.clearCache()
+        defer {
+            Memory.clearCache()
+            Memory.cacheLimit = previousCacheLimit
         }
 
         MLXRandom.seed(config.seed)
@@ -1397,6 +1417,10 @@ public enum HazeCoderTrainer {
 
             generated.append(nextToken)
             contextTokens.append(nextToken)
+
+            if generated.count.isMultiple(of: 8) {
+                Memory.clearCache()
+            }
         }
 
         return tokenizer.decode(generated)
