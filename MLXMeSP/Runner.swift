@@ -11,6 +11,12 @@
 import Foundation
 import MLX
 
+#if XTOOL_MOBILE
+internal typealias MeSPImportedFunction = XToolImportedFunction
+#else
+internal typealias MeSPImportedFunction = ImportedFunction
+#endif
+
 /// Protocol for checkpoint storage to allow swapping between in-memory and mmap implementations
 public protocol MLXArrayDictionary {
     subscript(key: String) -> MLXArray? { get set }
@@ -68,7 +74,7 @@ public typealias IterationStartHook = (Int) throws -> Void
 public typealias IterationEndHook = (Int, [String: MLXArray]) throws -> Void
 
 public class BaseRunner<Context> {
-    internal var functions: [String: ImportedFunction] = [:]
+    internal var functions: [String: MeSPImportedFunction] = [:]
     internal let paramsPaths: [String?]
     internal let configs: [RunFunctionConfig]
     public var checkpoints: MLXArrayDictionary
@@ -97,7 +103,7 @@ public class BaseRunner<Context> {
         
         for (path, config) in zip(functionPaths, configs) {
             if functions[config.functionName] == nil {
-                functions[config.functionName] = try ImportedFunction(url: URL(fileURLWithPath: path))
+                functions[config.functionName] = try MeSPImportedFunction(url: URL(fileURLWithPath: path))
             }
         }
         // Initialize checkpoint storage based on type
@@ -110,7 +116,7 @@ public class BaseRunner<Context> {
     }
     
     internal func runFunction(
-        _ f: ImportedFunction,
+        _ f: MeSPImportedFunction,
         inputs: MLXArrayDictionary,
         params: MLXArrayDictionary,
         config: RunFunctionConfig,
