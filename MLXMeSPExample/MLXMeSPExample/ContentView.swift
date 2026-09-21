@@ -535,9 +535,10 @@ struct ContentView: View {
                         }
                     }
                     .frame(maxHeight: 300)
-                    .onChange(of: trainingState.iterationStats.count) { (_, _) in
+                    .onChange(of: trainingState.iterationStats.count) { newCount in
+                        guard newCount > 0 else { return }
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            proxy.scrollTo(trainingState.iterationStats.count - 1, anchor: .bottom)
+                            proxy.scrollTo(newCount - 1, anchor: .bottom)
                         }
                     }
                 }
