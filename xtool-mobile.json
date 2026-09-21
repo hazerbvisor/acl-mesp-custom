@@ -7,9 +7,54 @@
   "infoPlist": "MLXMeSPExample/MLXMeSPExample/Info.plist",
   "targets": [
     {
+      "name": "_NumericsShims",
+      "sources": [
+        "ThirdParty/swift-numerics/_NumericsShims/_NumericsShims.c"
+      ],
+      "headerSearchPaths": [
+        "ThirdParty/swift-numerics/_NumericsShims/include"
+      ],
+      "moduleMap": "ThirdParty/swift-numerics/_NumericsShims/include/module.modulemap",
+      "parseAsLibrary": true
+    },
+    {
+      "name": "RealModule",
+      "sources": [
+        "ThirdParty/swift-numerics/RealModule"
+      ],
+      "dependencies": [
+        "_NumericsShims"
+      ],
+      "parseAsLibrary": true
+    },
+    {
+      "name": "ComplexModule",
+      "sources": [
+        "ThirdParty/swift-numerics/ComplexModule"
+      ],
+      "dependencies": [
+        "RealModule"
+      ],
+      "parseAsLibrary": true
+    },
+    {
+      "name": "Numerics",
+      "sources": [
+        "ThirdParty/swift-numerics/Numerics"
+      ],
+      "dependencies": [
+        "ComplexModule",
+        "RealModule"
+      ],
+      "parseAsLibrary": true
+    },
+    {
       "name": "MLXMeSP",
       "sources": [
         "MLXMeSP"
+      ],
+      "dependencies": [
+        "Numerics"
       ],
       "swiftFlags": [
         "-F",
@@ -51,7 +96,7 @@
     }
   ],
   "shortVersion": "0.1.0",
-  "buildVersion": "2",
+  "buildVersion": "3",
   "resources": [
     {
       "path": ".xtool-mobile-cache/binary-frameworks/a202bf1dcfe1e64404adabfeb5eb363332e3a6221d18e4289ca0663fa3ab86c9/Cmlx.xcframework/ios-arm64/Cmlx.framework",
