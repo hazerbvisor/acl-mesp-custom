@@ -36,6 +36,7 @@ struct HazeCoderNanoView: View {
                     }
 
                     codePipelineCard
+                    phase3DiagnosticCard
 
                     if let codePipelineResult {
                         codePipelineResultCard(codePipelineResult)
@@ -154,7 +155,7 @@ struct HazeCoderNanoView: View {
             Text("Phase 3 — real code pipeline")
                 .font(.headline)
 
-            Text("Tokenizes real Python, Swift, C, Rust and JavaScript source text, trains all 9.44M parameters for 16 steps with a 32-token context, saves a .safetensors checkpoint, reloads it, then generates from the reloaded weights.")
+            Text("Safe staged run: real Python, Swift, C, Rust and JavaScript text; all 9.44M parameters; 4 steps with a 16-token context; then checkpoint save, reload and generation.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -181,6 +182,26 @@ struct HazeCoderNanoView: View {
                 isRunning ||
                 isGenerating
             )
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var phase3DiagnosticCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Last Phase 3 stage")
+                .font(.headline)
+
+            Text(HazeCoderTrainer.latestPhase3Diagnostic())
+                .font(.system(.caption, design: .monospaced))
+                .foregroundColor(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("This marker is written to Documents/HazeCoder before and after each heavy stage. If the app is terminated, reopen it and this card shows the last stage reached.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
         .padding()
         .background(Color(.secondarySystemBackground))

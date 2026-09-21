@@ -304,12 +304,6 @@ public enum HazeCoderTrainer {
 
             parameters = updatedParameters
             lossHistory.append(stepLoss.item(Float.self))
-
-            // Release stale reusable Metal buffers periodically. The live
-            // parameters/moments remain active and are not discarded.
-            if step.isMultiple(of: 2) {
-                Memory.clearCache()
-            }
         }
 
         let finalLossArray = loss(parameters)
@@ -854,13 +848,16 @@ public enum HazeCoderTrainer {
     /// resulting weights as safetensors, reloads the checkpoint, and performs
     /// greedy generation from the reloaded parameters.
     public static func runTinyCodePipeline(
-        steps: Int = 16,
-        contextLength: Int = 32,
-        generationTokens: Int = 32
+        steps: Int = 4,
+        contextLength: Int = 16,
+        generationTokens: Int = 16
     ) -> HazeCoderCodePipelineResult {
         let started = Date()
         let config = HazeCoderConfig.nano
         let tokenizer = HazeCoderCodeTokenizer()
+
+        recordPhase3Stage("01 tokenizer")
+
         let corpusTokens = tokenizer.encodeFiles(
             HazeCoderTinyCodeCorpus.samples
         )
@@ -871,6 +868,7 @@ public enum HazeCoderTrainer {
               contextLength <= config.maxSequenceLength,
               corpusTokens.count > contextLength + 1
         else {
+            recordPhase3Stage("ERROR invalid configuration")
             return codePipelineFailure(
                 "Invalid code-pipeline configuration or corpus too small.",
                 steps: steps,
@@ -881,13 +879,10 @@ public enum HazeCoderTrainer {
             )
         }
 
-        // iOS can terminate an app when MLX's reusable Metal-buffer cache grows
-        // too aggressively during training. Keep the Phase 3 proof bounded and
-        // restore the user's previous MLX cache policy when it finishes.
         let previousCacheLimit = Memory.cacheLimit
         Memory.cacheLimit = min(
             previousCacheLimit,
-            128 * 1024 * 1024
+            64 * 1024 * 1024
         )
         Memory.clearCache()
         defer {
@@ -895,6 +890,7 @@ public enum HazeCoderTrainer {
             Memory.cacheLimit = previousCacheLimit
         }
 
+        recordPhase3Stage("02 initialize model")
         MLXRandom.seed(config.seed)
 
         var parameters = initializeParameters(config: config)
@@ -903,6 +899,7 @@ public enum HazeCoderTrainer {
         }
 
         guard parameterCount == config.estimatedParameterCount else {
+            recordPhase3Stage("ERROR parameter layout")
             return codePipelineFailure(
                 "Parameter layout mismatch.",
                 steps: steps,
@@ -920,48 +917,42 @@ public enum HazeCoderTrainer {
             dtype: config.useBFloat16 ? .bfloat16 : .float32
         )
 
-        func batch(start: Int) -> (MLXArray, MLXArray) {
-            let end = start + contextLength + 1
-            let window = Array(corpusTokens[start ..< end])
-            let input = MLXArray(
-                Array(window.dropLast()),
-                [1, contextLength]
-            )
-            let target = MLXArray(
-                Array(window.dropFirst()),
-                [1, contextLength]
-            )
-            return (input, target)
-        }
+        // Use one fixed real-code window first. This deliberately mirrors the
+        // already-proven Phase 2 training structure and removes per-step
+        // valueAndGrad closure construction as a crash variable.
+        let window = Array(
+            corpusTokens[0 ... contextLength]
+        )
+        let inputIDs = MLXArray(
+            Array(window.dropLast()),
+            [1, contextLength]
+        )
+        let targetIDs = MLXArray(
+            Array(window.dropFirst()),
+            [1, contextLength]
+        )
 
-        func batchLoss(
-            parameters: [MLXArray],
-            input: MLXArray,
-            target: MLXArray
-        ) -> MLXArray {
+        func loss(_ candidateParameters: [MLXArray]) -> MLXArray {
             let logits = forward(
-                tokenIDs: input,
-                parameters: parameters,
+                tokenIDs: inputIDs,
+                parameters: candidateParameters,
                 config: config,
                 constants: constants
             )
+
             return nextTokenCrossEntropy(
                 logits: logits,
-                targets: target,
+                targets: targetIDs,
                 vocabSize: config.vocabSize
             )
         }
 
-        let evaluationBatch = batch(start: 0)
-        let initialLossArray = batchLoss(
-            parameters: parameters,
-            input: evaluationBatch.0,
-            target: evaluationBatch.1
-        )
-        MLX.eval(initialLossArray)
-        let initialLoss = initialLossArray.item(Float.self)
+        recordPhase3Stage("03 initial forward")
 
         let initialEmbedding = parameters[0]
+        let initialLossArray = loss(parameters)
+        MLX.eval(initialLossArray)
+        let initialLoss = initialLossArray.item(Float.self)
 
         var firstMoments = parameters.map {
             MLXArray.zeros($0.shape, dtype: .float32)
@@ -976,30 +967,23 @@ public enum HazeCoderTrainer {
         let learningRate: Float = 0.0015
         let weightDecay: Float = 0.01
         let differentiableIndices = Array(parameters.indices)
-        let maxStart = corpusTokens.count - contextLength - 1
-        let stride = max(1, contextLength / 2)
+
+        // Same pattern as the working Phase 2 proof: build autodiff once and
+        // reuse it for every optimizer step.
+        let lossAndGrad = valueAndGrad(
+            { candidateParameters in
+                [loss(candidateParameters)]
+            },
+            argumentNumbers: differentiableIndices
+        )
 
         var lossHistory = [Float]()
         lossHistory.reserveCapacity(steps + 2)
         lossHistory.append(initialLoss)
 
         for step in 1 ... steps {
-            let start = ((step - 1) * stride) % (maxStart + 1)
-            let trainingBatch = batch(start: start)
-            let input = trainingBatch.0
-            let target = trainingBatch.1
-
-            let lossAndGrad = valueAndGrad(
-                { candidateParameters in
-                    [
-                        batchLoss(
-                            parameters: candidateParameters,
-                            input: input,
-                            target: target
-                        )
-                    ]
-                },
-                argumentNumbers: differentiableIndices
+            recordPhase3Stage(
+                "04 training step \(step)/\(steps) start"
             )
 
             let (values, gradients) = lossAndGrad(parameters)
@@ -1007,6 +991,9 @@ public enum HazeCoderTrainer {
             guard let stepLoss = values.first,
                   gradients.count == parameters.count
             else {
+                recordPhase3Stage(
+                    "ERROR autodiff layout step \(step)"
+                )
                 return codePipelineFailure(
                     "Autodiff returned an unexpected layout.",
                     steps: steps,
@@ -1083,18 +1070,21 @@ public enum HazeCoderTrainer {
 
             parameters = updatedParameters
             lossHistory.append(stepLoss.item(Float.self))
+
+            // This is the actual Phase 3 loop. Reclaim only reusable buffers;
+            // active model and optimizer arrays remain alive.
+            Memory.clearCache()
+            recordPhase3Stage(
+                "04 training step \(step)/\(steps) done"
+            )
         }
 
-        let finalLossArray = batchLoss(
-            parameters: parameters,
-            input: evaluationBatch.0,
-            target: evaluationBatch.1
-        )
+        recordPhase3Stage("05 final loss")
 
+        let finalLossArray = loss(parameters)
         let embeddingDifference =
             parameters[0].asType(.float32) -
             initialEmbedding.asType(.float32)
-
         let parameterChangeArray = MLX.mean(
             embeddingDifference * embeddingDifference
         )
@@ -1104,10 +1094,11 @@ public enum HazeCoderTrainer {
         let finalLoss = finalLossArray.item(Float.self)
         let parameterChangeMeanSquare =
             parameterChangeArray.item(Float.self)
-
         lossHistory.append(finalLoss)
 
         do {
+            recordPhase3Stage("06 checkpoint save start")
+
             let checkpointURL = try saveCodeCheckpoint(
                 parameters: parameters,
                 step: steps,
@@ -1116,11 +1107,21 @@ public enum HazeCoderTrainer {
                 config: config
             )
 
+            recordPhase3Stage("06 checkpoint save done")
+            Memory.clearCache()
+
+            recordPhase3Stage("07 checkpoint reload start")
+
             let loaded = try loadCodeCheckpoint(
                 url: checkpointURL,
                 expectedParameters: parameters,
                 config: config
             )
+
+            recordPhase3Stage("07 checkpoint reload done")
+            Memory.clearCache()
+
+            recordPhase3Stage("08 generation start")
 
             let generatedText = generateGreedy(
                 prompt: prompt,
@@ -1129,6 +1130,8 @@ public enum HazeCoderTrainer {
                 config: config,
                 maxNewTokens: generationTokens
             )
+
+            recordPhase3Stage("08 generation done")
 
             let checkpointBytes = checkpointSize(
                 url: checkpointURL
@@ -1150,6 +1153,12 @@ public enum HazeCoderTrainer {
 
             let passed =
                 finite && learned && checkpointRoundTrip
+
+            recordPhase3Stage(
+                passed
+                    ? "09 complete PASS"
+                    : "09 complete validation FAIL"
+            )
 
             return HazeCoderCodePipelineResult(
                 passed: passed,
@@ -1173,6 +1182,10 @@ public enum HazeCoderTrainer {
                 lossHistory: lossHistory
             )
         } catch {
+            recordPhase3Stage(
+                "ERROR checkpoint/generation: \(error)"
+            )
+
             return codePipelineFailure(
                 "Checkpoint/generation failed: \(error)",
                 steps: steps,
@@ -1188,6 +1201,55 @@ public enum HazeCoderTrainer {
                 lossHistory: lossHistory
             )
         }
+    }
+
+    public static func latestPhase3Diagnostic() -> String {
+        let url = phase3DiagnosticURL()
+        return (try? String(
+            contentsOf: url,
+            encoding: .utf8
+        )) ?? "No Phase 3 diagnostic recorded yet."
+    }
+
+    private static func recordPhase3Stage(
+        _ stage: String
+    ) {
+        let snapshot = Memory.snapshot()
+        let text = """
+        \(stage)
+        active=\(snapshot.activeMemory)
+        cache=\(snapshot.cacheMemory)
+        peak=\(snapshot.peakMemory)
+        """
+
+        let url = phase3DiagnosticURL()
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try? text.write(
+            to: url,
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private static func phase3DiagnosticURL() -> URL {
+        let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        ).first!
+
+        return documents
+            .appendingPathComponent(
+                "HazeCoder",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "phase3-last-stage.txt",
+                isDirectory: false
+            )
     }
 
     private struct LoadedCodeCheckpoint {
