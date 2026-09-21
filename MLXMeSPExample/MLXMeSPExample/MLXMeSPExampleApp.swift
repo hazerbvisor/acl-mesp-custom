@@ -17,7 +17,17 @@ struct MLXMeSPExampleApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TabView {
+                ContentView()
+                    .tabItem {
+                        Label("MeSP", systemImage: "slider.horizontal.3")
+                    }
+
+                HazeCoderNanoView()
+                    .tabItem {
+                        Label("HazeCoder", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+            }
         }
     }
 
