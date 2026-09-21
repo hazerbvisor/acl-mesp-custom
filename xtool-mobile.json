@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "MLXMeSPExample",
   "bundleIdentifier": "com.hazerbvisor.MLXMeSPExample",
-  "deploymentTarget": "16.0",
+  "deploymentTarget": "17.0",
   "executableTarget": "MLXMeSPExample",
   "infoPlist": "MLXMeSPExample/MLXMeSPExample/Info.plist",
   "targets": [
@@ -131,7 +131,7 @@
     }
   ],
   "shortVersion": "0.1.0",
-  "buildVersion": "8",
+  "buildVersion": "9",
   "resources": [
     {
       "path": ".xtool-mobile-cache/binary-frameworks/a202bf1dcfe1e64404adabfeb5eb363332e3a6221d18e4289ca0663fa3ab86c9/Cmlx.xcframework/ios-arm64/Cmlx.framework",
